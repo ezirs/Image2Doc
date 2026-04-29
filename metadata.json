@@ -1,0 +1,6 @@
+{
+  "name": "Image to Docs Converter",
+  "description": "Convert multiple images into a customized printable document or PDF with grid layouts, margins, and paper size settings.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
