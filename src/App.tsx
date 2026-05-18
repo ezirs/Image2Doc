@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { jsPDF } from 'jspdf';
+import { useTheme } from 'next-themes';
 import { 
   FileImage, 
   Settings2, 
@@ -11,7 +12,11 @@ import {
   MoveUp, 
   MoveDown, 
   Image as ImageIcon,
-  FileText
+  FileText,
+  Sun,
+  Moon,
+  RotateCw,
+  Menu
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -20,6 +25,7 @@ import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
+import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 
 // --- Types ---
 type ImageItem = {
@@ -50,6 +56,7 @@ const PAPER_DIMENSIONS: Record<PaperSize, { width: number; height: number }> = {
 };
 
 export default function App() {
+  const { theme, setTheme } = useTheme();
   const [images, setImages] = useState<ImageItem[]>([]);
   const [settings, setSettings] = useState<Settings>({
     paperSize: 'A4',
@@ -101,6 +108,44 @@ export default function App() {
         [newArr[index + 1], newArr[index]] = [newArr[index], newArr[index + 1]];
         return newArr;
       });
+    }
+  };
+
+  const rotateImage = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    // Find image
+    const imgItem = images.find(img => img.id === id);
+    if (!imgItem) return;
+
+    // Load image and redraw to canvas with rotation
+    const p = new Promise<string>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return resolve(imgItem.url);
+
+            // Rotate 90 degree clockwise
+            // New width is old height, new height is old width
+            canvas.width = img.height;
+            canvas.height = img.width;
+
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate((90 * Math.PI) / 180);
+            ctx.drawImage(img, -img.width / 2, -img.height / 2);
+
+            resolve(canvas.toDataURL(imgItem.file.type || 'image/jpeg', 0.95));
+        };
+        img.onerror = reject;
+        img.src = imgItem.url;
+    });
+
+    try {
+        const newUrl = await p;
+        setImages(prev => prev.map(img => img.id === id ? { ...img, url: newUrl } : img));
+    } catch (err) {
+        console.error("Failed to rotate image", err);
     }
   };
 
@@ -267,81 +312,34 @@ export default function App() {
     )
   }
 
-  return (
-    <div className="flex h-screen w-full bg-gray-100 overflow-hidden font-sans">
-        
-      {/* Sidebar - Hidden on Print */}
-      <aside className="w-80 bg-white border-r flex flex-col z-20 shrink-0 print:hidden shadow-lg h-full">
-        <div className="p-4 border-b bg-gray-50">
-            <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                <FileText className="w-6 h-6 text-blue-600" />
-                Image2Doc
-            </h1>
-            <p className="text-sm text-gray-500 mt-1">Convert images to beautiful PDFs</p>
+  const renderSidebarContent = () => (
+    <div className="flex flex-col h-full bg-card">
+        <div className="p-4 border-b border-border bg-muted/40 flex justify-between items-center shrink-0">
+            <div>
+                <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
+                    <FileText className="w-6 h-6 text-primary" />
+                    Image2Doc
+                </h1>
+                <p className="text-sm text-muted-foreground mt-1">Convert images to beautiful PDFs</p>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="rounded-full">
+                <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+                <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+                <span className="sr-only">Toggle theme</span>
+            </Button>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto">
-            <div className="p-6 space-y-8">
+            <div className="p-4 md:p-6 space-y-8">
 
                 <div className="space-y-4">
                     <div className="flex items-center justify-between">
-                        <Label className="text-base font-semibold text-gray-700">Images</Label>
-                        <span className="text-xs bg-blue-100 text-blue-700 font-medium px-2 py-0.5 rounded-full">{images.length}</span>
+                        <Label className="text-base font-semibold text-foreground">Layout Settings</Label>
                     </div>
-                    
-                    <div 
-                        {...getRootProps()} 
-                        className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${
-                            isDragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400 bg-gray-50'
-                        }`}
-                    >
-                        <input {...getInputProps()} id="file-upload-input" />
-                        <FileImage className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                        <p className="text-sm font-medium text-gray-600">click or drop images here</p>
-                    </div>
-
-                    {images.length > 0 && (
-                        <div className="space-y-2">
-                           <Label className="text-sm text-gray-500">Order & Management</Label>
-                           <div className="max-h-[250px] overflow-y-auto space-y-2 pr-2">
-                             {images.map((img, i) => (
-                                 <Card key={img.id} className="overflow-hidden bg-white shadow-sm hover:shadow relative group border-gray-200">
-                                     <div className="flex items-center p-2 gap-3">
-                                         <div className="w-12 h-12 rounded bg-gray-100 overflow-hidden shrink-0 border border-gray-200">
-                                             <img src={img.url} alt="thumbnail" className="w-full h-full object-cover" />
-                                         </div>
-                                         <div className="flex-1 min-w-0">
-                                             <p className="text-xs font-medium truncate text-gray-700">{img.file.name}</p>
-                                             <p className="text-[10px] text-gray-500">{(img.file.size / 1024 / 1024).toFixed(2)} MB</p>
-                                         </div>
-                                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                             <div className="flex flex-col">
-                                                 <button onClick={(e) => moveImage(i, 'up', e)} disabled={i === 0} className="p-0.5 text-gray-400 hover:text-blue-600 disabled:opacity-30"><MoveUp className="w-3 h-3" /></button>
-                                                 <button onClick={(e) => moveImage(i, 'down', e)} disabled={i === images.length - 1} className="p-0.5 text-gray-400 hover:text-blue-600 disabled:opacity-30"><MoveDown className="w-3 h-3" /></button>
-                                             </div>
-                                             <button onClick={(e) => removeImage(img.id, e)} className="p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 rounded">
-                                                 <Trash2 className="w-4 h-4" />
-                                             </button>
-                                         </div>
-                                     </div>
-                                 </Card>
-                             ))}
-                           </div>
-                        </div>
-                    )}
-                </div>
-
-                <Separator />
-
-                <div className="space-y-5">
-                    <Label className="text-base font-semibold text-gray-700 flex items-center gap-2">
-                        <Settings2 className="w-5 h-5" />
-                        Layout Settings
-                    </Label>
 
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <Label className="text-xs text-gray-500 uppercase tracking-wider">Paper Setup</Label>
+                            <Label className="text-xs text-muted-foreground uppercase tracking-wider">Paper Setup</Label>
                             <div className="grid grid-cols-2 gap-2">
                                 <Select value={settings.paperSize} onValueChange={(val) => updateSetting('paperSize', val)}>
                                     <SelectTrigger>
@@ -367,7 +365,7 @@ export default function App() {
                         </div>
 
                         <div className="space-y-2 mt-4">
-                             <Label className="text-xs text-gray-500 uppercase tracking-wider">Grid Layout</Label>
+                             <Label className="text-xs text-muted-foreground uppercase tracking-wider">Grid Layout</Label>
                              <div className="flex gap-2 items-center">
                                  <div className="flex-1 space-y-1">
                                      <Label className="text-xs">Columns</Label>
@@ -378,7 +376,7 @@ export default function App() {
                                         </SelectContent>
                                      </Select>
                                  </div>
-                                 <span className="text-gray-300 mt-5">×</span>
+                                 <span className="text-muted-foreground mt-5">×</span>
                                  <div className="flex-1 space-y-1">
                                     <Label className="text-xs">Rows</Label>
                                      <Select value={String(settings.rows)} onValueChange={(val) => updateSetting('rows', Number(val))}>
@@ -389,33 +387,33 @@ export default function App() {
                                      </Select>
                                  </div>
                              </div>
-                             <p className="text-xs text-gray-500 text-right">{settings.columns * settings.rows} images per page</p>
+                             <p className="text-xs text-muted-foreground text-right">{settings.columns * settings.rows} images per page</p>
                         </div>
                         
                         <div className="space-y-3 pt-2">
                             <div className="flex justify-between">
-                                <Label className="text-xs text-gray-600">Margin ({settings.margin} mm)</Label>
+                                <Label className="text-xs text-foreground">Margin ({settings.margin} mm)</Label>
                             </div>
                             <Slider 
-                                value={settings.margin} 
+                                value={[settings.margin]} 
                                 min={0} max={50} step={1}
-                                onValueChange={(val) => updateSetting('margin', typeof val === 'number' ? val : (val as any)[0])}
+                                onValueChange={(val) => updateSetting('margin', typeof val === 'number' ? val : val[0])}
                             />
                         </div>
 
                         <div className="space-y-3">
                             <div className="flex justify-between">
-                                <Label className="text-xs text-gray-600">Spacing / Gap ({settings.gap} mm)</Label>
+                                <Label className="text-xs text-foreground">Spacing / Gap ({settings.gap} mm)</Label>
                             </div>
                             <Slider 
-                                value={settings.gap} 
+                                value={[settings.gap]} 
                                 min={0} max={50} step={1}
-                                onValueChange={(val) => updateSetting('gap', typeof val === 'number' ? val : (val as any)[0])}
+                                onValueChange={(val) => updateSetting('gap', typeof val === 'number' ? val : val[0])}
                             />
                         </div>
 
                         <div className="space-y-2 pt-2">
-                             <Label className="text-xs text-gray-500 uppercase tracking-wider">Image Fit</Label>
+                             <Label className="text-xs text-muted-foreground uppercase tracking-wider">Image Fit</Label>
                              <Select value={settings.imageFit} onValueChange={(val) => updateSetting('imageFit', val)}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
@@ -427,13 +425,69 @@ export default function App() {
 
                     </div>
                 </div>
+
+                <Separator />
+
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <Label className="text-base font-semibold text-foreground">Images</Label>
+                        <span className="text-xs bg-primary/10 text-primary font-medium px-2 py-0.5 rounded-full">{images.length}</span>
+                    </div>
+                    
+                    <div 
+                        {...getRootProps()} 
+                        className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${
+                            isDragActive ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 bg-muted/30'
+                        }`}
+                    >
+                        <input {...getInputProps()} id="file-upload-input" />
+                        <FileImage className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm font-medium text-muted-foreground">click or drop images here</p>
+                    </div>
+
+                    {images.length > 0 && (
+                        <div className="space-y-2">
+                           <Label className="text-sm text-muted-foreground">Order & Management</Label>
+                           <div className="max-h-[300px] overflow-y-auto space-y-2 pr-2">
+                             {images.map((img, i) => (
+                                 <Card key={img.id} className="overflow-hidden bg-background shadow-sm hover:shadow group border-border">
+                                     <div className="flex flex-col xl:flex-row p-2 gap-2 xl:gap-3 xl:items-center">
+                                         <div className="flex items-center gap-2 flex-1 min-w-0">
+                                            <div className="w-12 h-12 rounded bg-muted overflow-hidden shrink-0 border border-border">
+                                                <img src={img.url} alt="thumbnail" className="w-full h-full object-cover" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs font-medium truncate text-foreground" title={img.file.name}>{img.file.name}</p>
+                                                <p className="text-[10px] text-muted-foreground">{(img.file.size / 1024 / 1024).toFixed(2)} MB</p>
+                                            </div>
+                                         </div>
+                                         <div className="flex items-center justify-end gap-2 mt-1 xl:mt-0 shrink-0">
+                                             <button onClick={(e) => rotateImage(img.id, e)} title="Rotate clockwise" className="p-1.5 bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground rounded flex items-center justify-center">
+                                                 <RotateCw className="w-4 h-4" />
+                                             </button>
+                                             <div className="flex gap-1">
+                                                 <button onClick={(e) => moveImage(i, 'up', e)} disabled={i === 0} title="Move up" className="p-1.5 bg-muted/50 text-muted-foreground hover:text-primary disabled:opacity-30 rounded"><MoveUp className="w-4 h-4" /></button>
+                                                 <button onClick={(e) => moveImage(i, 'down', e)} disabled={i === images.length - 1} title="Move down" className="p-1.5 bg-muted/50 text-muted-foreground hover:text-primary disabled:opacity-30 rounded"><MoveDown className="w-4 h-4" /></button>
+                                             </div>
+                                             <button onClick={(e) => removeImage(img.id, e)} title="Remove" className="p-1.5 bg-destructive/10 text-destructive hover:bg-destructive/20 rounded flex items-center justify-center">
+                                                 <Trash2 className="w-4 h-4" />
+                                             </button>
+                                         </div>
+                                     </div>
+                                 </Card>
+                             ))}
+                           </div>
+                        </div>
+                    )}
+                </div>
+
             </div>
         </div>
 
-        <div className="p-4 border-t bg-gray-50 space-y-2">
+        <div className="p-4 border-t border-border bg-muted/40 space-y-2 shrink-0">
             <Button 
                 onClick={handleDownloadPDF} 
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-200"
+                className="w-full"
                 disabled={images.length === 0}
             >
                 <Download className="w-4 h-4 mr-2" /> Download PDF
@@ -441,34 +495,56 @@ export default function App() {
             <Button 
                 onClick={handlePrint} 
                 variant="outline" 
-                className="w-full text-gray-700 bg-white hover:bg-gray-100 border-gray-300"
+                className="w-full bg-background"
             >
                 <Printer className="w-4 h-4 mr-2" /> Print Directly
             </Button>
         </div>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col md:flex-row h-screen w-full bg-background overflow-hidden font-sans text-foreground">
+        
+      {/* Mobile Header with Settings Toggle */}
+      <div className="md:hidden flex items-center justify-between p-4 border-b border-border bg-card shadow-sm z-30 shrink-0 print:hidden">
+          <div className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-primary" />
+              <h1 className="text-lg font-bold text-foreground">Image2Doc</h1>
+          </div>
+          <Sheet>
+            <SheetTrigger render={<Button variant="outline" size="sm" className="gap-2" />}>
+                <Menu className="w-4 h-4" />
+                Settings
+            </SheetTrigger>
+            <SheetContent side="left" className="p-0 w-80 lg:w-96 border-r border-border shrink-0">
+                <SheetHeader className="sr-only">
+                    <SheetTitle>Settings</SheetTitle>
+                </SheetHeader>
+                {renderSidebarContent()}
+            </SheetContent>
+          </Sheet>
+      </div>
+
+      {/* Desktop Sidebar */}
+      <aside className="hidden md:flex w-80 lg:w-96 border-r border-border flex-col z-20 shrink-0 print:hidden shadow-lg shadow-black/5">
+        {renderSidebarContent()}
       </aside>
 
       {/* Main Preview Area */}
-      <main className="flex-1 bg-gray-200/60 overflow-auto relative print:bg-white print:overflow-visible">
+      <main className="flex-1 overflow-auto relative print:bg-white print:overflow-visible">
           {images.length === 0 && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 print:hidden">
-                  <div className="bg-white p-6 rounded-2xl shadow-xl flex flex-col items-center border border-gray-100 max-w-sm text-center">
-                    <FileImage className="w-16 h-16 text-blue-100 mb-4" />
-                    <h2 className="text-xl font-bold text-gray-700 mb-2">No Images Uploaded</h2>
-                    <p className="text-gray-500 mb-6">Drag and drop photos using the sidebar to start creating your document.</p>
-                    <Button onClick={() => document.getElementById('file-upload-input')?.click()} className="bg-blue-600 hover:bg-blue-700">
-                        <Plus className="w-4 h-4 mr-2" /> Upload Images
-                    </Button>
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground print:hidden p-4">
+                  <div className="bg-card p-6 rounded-2xl shadow-xl flex flex-col items-center border border-border max-w-sm text-center">
+                    <FileImage className="w-16 h-16 text-muted-foreground/30 mb-4" />
+                    <h2 className="text-xl font-bold text-foreground mb-2">No Images Uploaded</h2>
+                    <p className="text-muted-foreground mb-6">Open Settings and upload photos to start creating your document.</p>
                   </div>
               </div>
           )}
 
           <div 
-             className="min-h-full py-12 px-8 flex justify-center print:p-0 print:block"
-             style={{
-                 // Using zoom or transform to scale the preview down if needed, but let's just let it overflow nicely for now
-                 // and users can scroll. We can add a "scale" feature later.
-             }}
+             className="min-h-full py-6 md:py-12 px-2 md:px-8 flex justify-center print:p-0 print:block"
              ref={printRef}
           >
               <div className="preview-scale-container" style={{ transformOrigin: 'top center', transform: 'scale(1)' }}>
