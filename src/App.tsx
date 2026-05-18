@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { jsPDF } from 'jspdf';
 import { useTheme } from 'next-themes';
@@ -69,6 +69,34 @@ export default function App() {
   });
 
   const printRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const handleResize = () => {
+        if (!mainRef.current) return;
+        const format = PAPER_DIMENSIONS[settings.paperSize];
+        const docWidthMm = settings.orientation === 'portrait' ? format.width : format.height;
+        // 96 DPI: 1 inch = 25.4 mm = 96 px => 1 mm = 3.7795 px
+        const docWidthPx = docWidthMm * 3.78;
+        
+        const containerWidth = mainRef.current.clientWidth;
+        // Padding around the paper
+        const padding = window.innerWidth < 768 ? 16 : 48; // Less padding on mobile
+        const availableWidth = containerWidth - padding;
+        
+        let newScale = availableWidth / docWidthPx;
+        if (newScale > 1) newScale = 1;
+        
+        setScale(newScale);
+    };
+
+    handleResize();
+    const observer = new ResizeObserver(handleResize);
+    if (mainRef.current) observer.observe(mainRef.current);
+    
+    return () => observer.disconnect();
+  }, [settings.paperSize, settings.orientation]);
 
   const updateSetting = (key: keyof Settings, value: any) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
@@ -264,7 +292,7 @@ export default function App() {
     const docHeightMm = orientation === 'portrait' ? format.height : format.width;
 
     return (
-        <div className="flex flex-col items-center gap-8 print:gap-0 print:items-start pb-20">
+        <div className="flex flex-col items-center gap-8 print:gap-0 print:items-start">
             {pages.map((pageImages, pageIndex) => (
                 <div 
                     key={pageIndex}
@@ -532,7 +560,7 @@ export default function App() {
       </aside>
 
       {/* Main Preview Area */}
-      <main className="flex-1 overflow-auto relative print:bg-white print:overflow-visible">
+      <main ref={mainRef} className="flex-1 overflow-auto relative print:bg-white print:overflow-visible">
           {images.length === 0 && (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground print:hidden p-4">
                   <div className="bg-card p-6 rounded-2xl shadow-xl flex flex-col items-center border border-border max-w-sm text-center">
@@ -544,11 +572,20 @@ export default function App() {
           )}
 
           <div 
-             className="min-h-full py-6 md:py-12 px-2 md:px-8 flex justify-center print:p-0 print:block"
+             className="min-h-full py-6 md:py-12 px-2 md:px-8 flex flex-col items-center print:p-0 print:block"
              ref={printRef}
           >
-              <div className="preview-scale-container" style={{ transformOrigin: 'top center', transform: 'scale(1)' }}>
-                  {previewRender()}
+              <div 
+                className="relative print:!h-auto print:!w-auto" 
+                style={{ 
+                    // Calculate exact scaled dimensions so the scroll container works perfectly
+                    width: `${(settings.orientation === 'portrait' ? PAPER_DIMENSIONS[settings.paperSize].width : PAPER_DIMENSIONS[settings.paperSize].height) * 3.78 * scale}px`,
+                    height: `${(pages.length * ((settings.orientation === 'portrait' ? PAPER_DIMENSIONS[settings.paperSize].height : PAPER_DIMENSIONS[settings.paperSize].width) * 3.78) + (pages.length - 1) * 32) * scale}px` 
+                }}
+              >
+                  <div className="absolute top-0 left-0 origin-top-left print:!transform-none" style={{ transform: `scale(${scale})` }}>
+                      {previewRender()}
+                  </div>
               </div>
           </div>
       </main>
